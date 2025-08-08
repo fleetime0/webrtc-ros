@@ -12,7 +12,7 @@ struct PeerConfig : public rtc::Configuration {
 };
 
 class SignalingMessageObserver {
-  public:
+public:
   using OnLocalSdpFunc =
           std::function<void(const std::string &peer_id, const std::string &sdp, const std::string &type)>;
   using OnLocalIceFunc =
@@ -24,13 +24,13 @@ class SignalingMessageObserver {
   void OnLocalSdp(OnLocalSdpFunc func) { on_local_sdp_fn_ = std::move(func); };
   void OnLocalIce(OnLocalIceFunc func) { on_local_ice_fn_ = std::move(func); };
 
-  protected:
+protected:
   OnLocalSdpFunc on_local_sdp_fn_ = nullptr;
   OnLocalIceFunc on_local_ice_fn_ = nullptr;
 };
 
 class RtcPeer : public SignalingMessageObserver {
-  public:
+public:
   static std::shared_ptr<RtcPeer> Create(PeerConfig config);
 
   RtcPeer(PeerConfig config);
@@ -49,7 +49,7 @@ class RtcPeer : public SignalingMessageObserver {
   void SetRemoteSdp(const std::string &sdp, const std::string &type) override;
   void SetRemoteIce(const std::string &sdp_mid, const std::string &candidate) override;
 
-  private:
+private:
   void OnSignalingStateChange(rtc::PeerConnection::SignalingState state);
   void OnIceGatheringChange(rtc::PeerConnection::GatheringState state);
   void OnConnectionChange(rtc::PeerConnection::State state);

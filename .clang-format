@@ -2,7 +2,7 @@
 Language: Cpp
 BasedOnStyle: LLVM
 # 访问修饰符（如 public:）的缩进偏移量，-4 表示减少一级缩进
-AccessModifierOffset: -4
+AccessModifierOffset: -2
 # 是否对连续的赋值语句对齐
 AlignConsecutiveAssignments: false
 # 是否对连续的声明语句对齐

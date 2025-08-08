@@ -7,6 +7,8 @@ endif()
 
 find_package(Threads REQUIRED)
 find_package(Boost CONFIG REQUIRED COMPONENTS system thread)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(OPENH264 REQUIRED openh264)
 
 add_subdirectory(deps/libdatachannel)
 
@@ -15,11 +17,13 @@ add_executable(${PROJECT_NAME}
   # src/http_service.cpp
   # src/webrtc_ros.cpp
   src/rtc_peer.cpp
+  src/openh264_encoder.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include/${PROJECT_NAME}>
+  ${OPENH264_INCLUDE_DIRS}
 )
 
 target_compile_features(${PROJECT_NAME} PUBLIC c_std_99 cxx_std_17)
@@ -29,4 +33,5 @@ target_link_libraries(${PROJECT_NAME}
   Boost::thread
   LibDataChannel::LibDataChannel
   Threads::Threads
+  ${OPENH264_LIBRARIES}
 )
