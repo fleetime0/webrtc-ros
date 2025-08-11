@@ -7,8 +7,6 @@
 // #include "common/v4l2_frame_buffer.h"
 #include "common/v4l2_utils.h"
 
-// #include <libcamera/libcamera.h>
-
 #include <variant>
 
 class VideoCapturer {
@@ -23,7 +21,6 @@ public:
   virtual uint32_t format() const = 0;
   virtual Args config() const = 0;
   virtual void StartCapture() = 0;
-  // virtual rtc::scoped_refptr<webrtc::I420BufferInterface> GetI420Frame() = 0;
 
   virtual VideoCapturer &SetResolution(int width, int height) = 0;
   virtual VideoCapturer &SetFps(int fps) = 0;

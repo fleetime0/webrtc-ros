@@ -4,6 +4,7 @@
 #include <atomic>
 #include <thread>
 
+#include "common/logging.h"
 #include "rtc/rtc.hpp"
 
 struct PeerConfig : public rtc::Configuration {

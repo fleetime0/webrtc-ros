@@ -13,6 +13,7 @@ pkg_check_modules(AVDEVICE REQUIRED libavdevice)
 pkg_check_modules(AVCODEC REQUIRED libavcodec)
 pkg_check_modules(AVFORMAT REQUIRED libavformat)
 pkg_check_modules(AVUTIL REQUIRED libavutil)
+# pkg_check_modules(LIBYUV REQUIRED libyuv)
 # pkg_check_modules(OPENH264 REQUIRED openh264)
 
 add_subdirectory(deps/libdatachannel)
@@ -21,9 +22,10 @@ add_executable(${PROJECT_NAME}
   src/main.cpp
   # src/http_service.cpp
   # src/webrtc_ros.cpp
-  src/rtc_peer.cpp
+  # src/rtc_peer.cpp
   src/common/v4l2_utils.cpp
-  src/libav_encoder.cpp
+  src/common/logging.cpp
+  # src/libav_encoder.cpp
   # src/openh264_encoder.cpp
 )
 
@@ -36,6 +38,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
   ${AVFORMAT_INCLUDE_DIRS}
   ${AVUTIL_INCLUDE_DIRS}
   ${AVDEVICE_INCLUDE_DIRS}
+  ${LIBYUV_INCLUDE_DIRS}
   # ${OPENH264_INCLUDE_DIRS}
 )
 
@@ -50,5 +53,6 @@ target_link_libraries(${PROJECT_NAME}
   ${AVFORMAT_LIBRARIES}
   ${AVUTIL_LIBRARIES}
   ${AVDEVICE_LIBRARIES}
+  ${LIBYUV_LIBRARIES}
   # ${OPENH264_LIBRARIES}
 )

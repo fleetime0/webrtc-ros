@@ -22,7 +22,7 @@ RtcPeer::RtcPeer(PeerConfig config) :
 
 RtcPeer::~RtcPeer() {
   Terminate();
-  // DEBUG_PRINT("peer connection (%s) was destroyed!", id_.c_str());
+  DEBUG_PRINT("peer connection (%s) was destroyed!", id_.c_str());
 }
 
 void RtcPeer::CreateOffer() {
@@ -87,12 +87,12 @@ std::string RtcPeer::RestartIce(std::string ice_ufrag, std::string ice_pwd) {
 
 void RtcPeer::OnSignalingStateChange(rtc::PeerConnection::SignalingState state) {
   signaling_state_ = state;
-  // DEBUG_PRINT("OnSignalingChange => %s", std::string(state).c_str());
+  DEBUG_PRINT("OnSignalingChange => %s", std::string(state).c_str());
   if (state == rtc::PeerConnection::SignalingState::HaveRemoteOffer) {
     peer_timeout_ = std::thread([this]() {
       std::this_thread::sleep_for(std::chrono::seconds(timeout_));
       if (peer_connection_ && !is_complete_.load() && !is_connected_.load()) {
-        // DEBUG_PRINT("Connection timeout after kConnecting. Closing connection.");
+        DEBUG_PRINT("Connection timeout after kConnecting. Closing connection.");
         peer_connection_->close();
       }
     });
@@ -100,11 +100,11 @@ void RtcPeer::OnSignalingStateChange(rtc::PeerConnection::SignalingState state) 
 }
 
 void RtcPeer::OnIceGatheringChange(rtc::PeerConnection::GatheringState state) {
-  // DEBUG_PRINT("OnIceGatheringChange => %s", std::string(state).c_str());
+  DEBUG_PRINT("OnIceGatheringChange => %s", std::string(state).c_str());
 }
 
 void RtcPeer::OnConnectionChange(rtc::PeerConnection::State state) {
-  //  DEBUG_PRINT("OnConnectionChange => %s", std::string(state).c_str());
+  DEBUG_PRINT("OnConnectionChange => %s", std::string(state).c_str());
   if (state == rtc::PeerConnection::State::Connected) {
     is_connected_.store(true);
     on_local_ice_fn_ = nullptr;
@@ -175,14 +175,14 @@ void RtcPeer::SetRemoteSdp(const std::string &sdp, const std::string &sdp_type) 
   rtc::Description remote_desc(sdp, sdp_type);
   rtc::Description::Type type = remote_desc.type();
   if (type == rtc::Description::Type::Unspec) {
-    // ERROR_PRINT("Unknown SDP type: %s", sdp_type.c_str());
+    ERROR_PRINT("Unknown SDP type: %s", sdp_type.c_str());
     return;
   }
 
   try {
     peer_connection_->setRemoteDescription(remote_desc);
   } catch (const std::exception &e) {
-    // ERROR_PRINT("Failed to set remote SDP: %s", e.what());
+    ERROR_PRINT("Failed to set remote SDP: %s", e.what());
   }
 
   if (type == rtc::Description::Type::Offer) {
@@ -199,6 +199,6 @@ void RtcPeer::SetRemoteIce(const std::string &sdp_mid, const std::string &candid
     rtc::Candidate ice(sdp_mid, candidate);
     peer_connection_->addRemoteCandidate(ice);
   } catch (const std::exception &e) {
-    // ERROR_PRINT("Failed to apply remote ICE candidate: %s", e.what());
+    ERROR_PRINT("Failed to apply remote ICE candidate: %s", e.what());
   }
 }

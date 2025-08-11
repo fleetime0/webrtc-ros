@@ -1,4 +1,5 @@
 #include "v4l2_utils.h"
+#include "common/logging.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -36,21 +37,21 @@ std::string V4L2Util::FourccToString(uint32_t fourcc) {
 int V4L2Util::OpenDevice(const char *file) {
   int fd = open(file, O_RDWR);
   if (fd < 0) {
-    // ERROR_PRINT("v4l2 open(%s): %s", file, strerror(errno));
+    ERROR_PRINT("v4l2 open(%s): %s", file, strerror(errno));
     throw std::runtime_error("failed to open v4l2 device");
   }
-  //   DEBUG_PRINT("Open file %s fd(%d) success!", file, fd);
+  DEBUG_PRINT("Open file %s fd(%d) success!", file, fd);
   return fd;
 }
 
 void V4L2Util::CloseDevice(int fd) {
   close(fd);
-  // DEBUG_PRINT("fd(%d) is closed!", fd);
+  DEBUG_PRINT("fd(%d) is closed!", fd);
 }
 
 bool V4L2Util::QueryCapabilities(int fd, v4l2_capability *cap) {
   if (ioctl(fd, VIDIOC_QUERYCAP, cap) < 0) {
-    // ERROR_PRINT("fd(%d) query capabilities: %s", fd, strerror(errno));
+    ERROR_PRINT("fd(%d) query capabilities: %s", fd, strerror(errno));
     return false;
   }
   return true;
@@ -62,10 +63,10 @@ bool V4L2Util::InitBuffer(int fd, V4L2BufferGroup *gbuffer, v4l2_buf_type type, 
     return false;
   }
 
-  //   DEBUG_PRINT("fd(%d) driver '%s' on card '%s' in %s mode", fd, cap.driver, cap.card,
-  //               V4L2Util::IsSinglePlaneVideo(&cap)  ? "splane"
-  //               : V4L2Util::IsMultiPlaneVideo(&cap) ? "mplane"
-  //                                                   : "unknown");
+  DEBUG_PRINT("fd(%d) driver '%s' on card '%s' in %s mode", fd, cap.driver, cap.card,
+              V4L2Util::IsSinglePlaneVideo(&cap)  ? "splane"
+              : V4L2Util::IsMultiPlaneVideo(&cap) ? "mplane"
+                                                  : "unknown");
   gbuffer->fd = fd;
   gbuffer->type = type;
   gbuffer->memory = memory;
@@ -76,7 +77,7 @@ bool V4L2Util::InitBuffer(int fd, V4L2BufferGroup *gbuffer, v4l2_buf_type type, 
 
 bool V4L2Util::DequeueBuffer(int fd, v4l2_buffer *buffer) {
   if (ioctl(fd, VIDIOC_DQBUF, buffer) < 0) {
-    // ERROR_PRINT("fd(%d) dequeue buffer: %s", fd, strerror(errno));
+    ERROR_PRINT("fd(%d) dequeue buffer: %s", fd, strerror(errno));
     return false;
   }
   return true;
@@ -84,7 +85,7 @@ bool V4L2Util::DequeueBuffer(int fd, v4l2_buffer *buffer) {
 
 bool V4L2Util::QueueBuffer(int fd, v4l2_buffer *buffer) {
   if (ioctl(fd, VIDIOC_QBUF, buffer) < 0) {
-    // ERROR_PRINT("fd(%d) queue buffer(%u): %s\n", fd, buffer->type, strerror(errno));
+    ERROR_PRINT("fd(%d) queue buffer(%u): %s\n", fd, buffer->type, strerror(errno));
     return false;
   }
   return true;
@@ -120,7 +121,7 @@ bool V4L2Util::SubscribeEvent(int fd, uint32_t type) {
   v4l2_event_subscription sub = {};
   sub.type = type;
   if (ioctl(fd, VIDIOC_SUBSCRIBE_EVENT, &sub) < 0) {
-    // ERROR_PRINT("fd(%d) does not support VIDIOC_SUBSCRIBE_EVENT(%d)", fd, type);
+    ERROR_PRINT("fd(%d) does not support VIDIOC_SUBSCRIBE_EVENT(%d)", fd, type);
     return false;
   }
   return true;
@@ -132,7 +133,7 @@ bool V4L2Util::SetFps(int fd, v4l2_buf_type type, int fps) {
   streamparms.parm.capture.timeperframe.numerator = 1;
   streamparms.parm.capture.timeperframe.denominator = fps;
   if (ioctl(fd, VIDIOC_S_PARM, &streamparms) < 0) {
-    // ERROR_PRINT("fd(%d) set fps(%d): %s", fd, fps, strerror(errno));
+    ERROR_PRINT("fd(%d) set fps(%d): %s", fd, fps, strerror(errno));
     return false;
   }
   return true;
@@ -143,9 +144,9 @@ bool V4L2Util::SetFormat(int fd, V4L2BufferGroup *gbuffer, int width, int height
   fmt.type = gbuffer->type;
   ioctl(fd, VIDIOC_G_FMT, &fmt);
 
-  //   DEBUG_PRINT("fd(%d) original formats: %s(%dx%d)", gbuffer->fd,
-  //               V4L2Util::FourccToString(fmt.fmt.pix_mp.pixelformat).c_str(), fmt.fmt.pix_mp.width,
-  //               fmt.fmt.pix_mp.height);
+  DEBUG_PRINT("fd(%d) original formats: %s(%dx%d)", gbuffer->fd,
+              V4L2Util::FourccToString(fmt.fmt.pix_mp.pixelformat).c_str(), fmt.fmt.pix_mp.width,
+              fmt.fmt.pix_mp.height);
 
   if (width > 0 && height > 0) {
     fmt.fmt.pix_mp.width = width;
@@ -154,20 +155,20 @@ bool V4L2Util::SetFormat(int fd, V4L2BufferGroup *gbuffer, int width, int height
   }
 
   if (ioctl(fd, VIDIOC_S_FMT, &fmt) < 0) {
-    // ERROR_PRINT("fd(%d) set format(%s) : %s", fd, V4L2Util::FourccToString(fmt.fmt.pix_mp.pixelformat).c_str(),
-    //             strerror(errno));
+    ERROR_PRINT("fd(%d) set format(%s) : %s", fd, V4L2Util::FourccToString(fmt.fmt.pix_mp.pixelformat).c_str(),
+                strerror(errno));
     return false;
   }
 
-  //   DEBUG_PRINT("fd(%d) latest format: %s(%dx%d)", gbuffer->fd,
-  //               V4L2Util::FourccToString(fmt.fmt.pix_mp.pixelformat).c_str(), fmt.fmt.pix_mp.width,
-  //               fmt.fmt.pix_mp.height);
+  DEBUG_PRINT("fd(%d) latest format: %s(%dx%d)", gbuffer->fd,
+              V4L2Util::FourccToString(fmt.fmt.pix_mp.pixelformat).c_str(), fmt.fmt.pix_mp.width,
+              fmt.fmt.pix_mp.height);
   // use the  return format
   pixel_format = fmt.fmt.pix_mp.pixelformat;
 
   if (fmt.fmt.pix_mp.width != width || fmt.fmt.pix_mp.height != height) {
-    // ERROR_PRINT("fd(%d) input size (%dx%d) doesn't match driver's output size (%dx%d): %s", fd, width, height,
-    //             fmt.fmt.pix_mp.width, fmt.fmt.pix_mp.height, strerror(EINVAL));
+    ERROR_PRINT("fd(%d) input size (%dx%d) doesn't match driver's output size (%dx%d): %s", fd, width, height,
+                fmt.fmt.pix_mp.width, fmt.fmt.pix_mp.height, strerror(EINVAL));
     throw std::runtime_error("the frame size doesn't match");
   }
 
@@ -179,7 +180,7 @@ bool V4L2Util::SetCtrl(int fd, uint32_t id, int32_t value) {
   ctrls.id = id;
   ctrls.value = value;
   if (ioctl(fd, VIDIOC_S_CTRL, &ctrls) < 0) {
-    // ERROR_PRINT("fd(%d) set ctrl(%d): %s", fd, id, strerror(errno));
+    ERROR_PRINT("fd(%d) set ctrl(%d): %s", fd, id, strerror(errno));
     return false;
   }
   return true;
@@ -199,7 +200,7 @@ bool V4L2Util::SetExtCtrl(int fd, uint32_t id, int32_t value) {
   ctrl.value = value;
 
   if (ioctl(fd, VIDIOC_S_EXT_CTRLS, &ctrls) < 0) {
-    // ERROR_PRINT("fd(%d) set ext ctrl(%d): %s", fd, id, strerror(errno));
+    ERROR_PRINT("fd(%d) set ext ctrl(%d): %s", fd, id, strerror(errno));
     return false;
   }
   return true;
@@ -207,7 +208,7 @@ bool V4L2Util::SetExtCtrl(int fd, uint32_t id, int32_t value) {
 
 bool V4L2Util::StreamOn(int fd, v4l2_buf_type type) {
   if (ioctl(fd, VIDIOC_STREAMON, &type) < 0) {
-    // ERROR_PRINT("fd(%d) turn on stream: %s", fd, strerror(errno));
+    ERROR_PRINT("fd(%d) turn on stream: %s", fd, strerror(errno));
     return false;
   }
   return true;
@@ -215,7 +216,7 @@ bool V4L2Util::StreamOn(int fd, v4l2_buf_type type) {
 
 bool V4L2Util::StreamOff(int fd, v4l2_buf_type type) {
   if (ioctl(fd, VIDIOC_STREAMOFF, &type) < 0) {
-    // ERROR_PRINT("fd(%d) turn off stream: %s", fd, strerror(errno));
+    ERROR_PRINT("fd(%d) turn off stream: %s", fd, strerror(errno));
     return false;
   }
   return true;
@@ -224,11 +225,11 @@ bool V4L2Util::StreamOff(int fd, v4l2_buf_type type) {
 void V4L2Util::UnMap(V4L2BufferGroup *gbuffer) {
   for (int i = 0; i < gbuffer->num_buffers; i++) {
     if (gbuffer->buffers[i].dmafd != 0) {
-      //   DEBUG_PRINT("close (%d) dmafd", gbuffer->buffers[i].dmafd);
+      DEBUG_PRINT("close (%d) dmafd", gbuffer->buffers[i].dmafd);
       close(gbuffer->buffers[i].dmafd);
     }
     if (gbuffer->buffers[i].start != nullptr) {
-      //   DEBUG_PRINT("unmapped (%d) buffers", gbuffer->fd);
+      DEBUG_PRINT("unmapped (%d) buffers", gbuffer->fd);
       munmap(gbuffer->buffers[i].start, gbuffer->buffers[i].length);
       gbuffer->buffers[i].start = nullptr;
     }
@@ -246,7 +247,7 @@ bool V4L2Util::MMap(int fd, V4L2BufferGroup *gbuffer) {
     inner->m.planes = &buffer->plane;
 
     if (ioctl(fd, VIDIOC_QUERYBUF, inner) < 0) {
-      //   ERROR_PRINT("fd(%d) query buffer: %s", fd, strerror(errno));
+      ERROR_PRINT("fd(%d) query buffer: %s", fd, strerror(errno));
       return false;
     }
 
@@ -256,11 +257,11 @@ bool V4L2Util::MMap(int fd, V4L2BufferGroup *gbuffer) {
       expbuf.index = i;
       expbuf.plane = 0;
       if (ioctl(fd, VIDIOC_EXPBUF, &expbuf) < 0) {
-        // ERROR_PRINT("fd(%d) export buffer: %s", fd, strerror(errno));
+        ERROR_PRINT("fd(%d) export buffer: %s", fd, strerror(errno));
         return false;
       }
       buffer->dmafd = expbuf.fd;
-      //   DEBUG_PRINT("fd(%d) export dma at fd(%d)", gbuffer->fd, buffer->dmafd);
+      DEBUG_PRINT("fd(%d) export dma at fd(%d)", gbuffer->fd, buffer->dmafd);
     }
 
     if (gbuffer->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE || gbuffer->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
@@ -279,7 +280,7 @@ bool V4L2Util::MMap(int fd, V4L2BufferGroup *gbuffer) {
       return false;
     }
 
-    // DEBUG_PRINT("fd(%d) query buffer at %p (length: %d)", gbuffer->fd, buffer->start, buffer->length);
+    DEBUG_PRINT("fd(%d) query buffer at %p (length: %d)", gbuffer->fd, buffer->start, buffer->length);
   }
 
   return true;
@@ -295,7 +296,7 @@ bool V4L2Util::AllocateBuffer(int fd, V4L2BufferGroup *gbuffer, int num_buffers)
   req.type = gbuffer->type;
 
   if (ioctl(fd, VIDIOC_REQBUFS, &req) < 0) {
-    // ERROR_PRINT("fd(%d) request buffer: %s", fd, strerror(errno));
+    ERROR_PRINT("fd(%d) request buffer: %s", fd, strerror(errno));
     return false;
   }
 
@@ -327,7 +328,7 @@ bool V4L2Util::DeallocateBuffer(int fd, V4L2BufferGroup *gbuffer) {
   req.type = gbuffer->type;
 
   if (ioctl(fd, VIDIOC_REQBUFS, &req) < 0) {
-    // ERROR_PRINT("fd(%d) request buffer: %s", fd, strerror(errno));
+    ERROR_PRINT("fd(%d) request buffer: %s", fd, strerror(errno));
     return false;
   }
 

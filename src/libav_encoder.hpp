@@ -7,26 +7,26 @@
 
 #pragma once
 
-#include <atomic>
-#include <condition_variable>
+// #include <atomic>
+// #include <condition_variable>
 #include <memory>
-#include <mutex>
-#include <queue>
-#include <thread>
+// #include <mutex>
+// #include <queue>
+// #include <thread>
 
 extern "C" {
 #include "libavcodec/avcodec.h"
-#include "libavcodec/codec_desc.h"
-#include "libavcodec/version.h"
+// #include "libavcodec/codec_desc.h"
+// #include "libavcodec/version.h"
 #include "libavdevice/avdevice.h"
 #include "libavformat/avformat.h"
-#include "libavutil/audio_fifo.h"
-#include "libavutil/hwcontext.h"
-#include "libavutil/hwcontext_drm.h"
-#include "libavutil/imgutils.h"
-#include "libavutil/timestamp.h"
-#include "libavutil/version.h"
-#include "libswresample/swresample.h"
+// #include "libavutil/audio_fifo.h"
+// #include "libavutil/hwcontext.h"
+// #include "libavutil/hwcontext_drm.h"
+// #include "libavutil/imgutils.h"
+// #include "libavutil/timestamp.h"
+// #include "libavutil/version.h"
+// #include "libswresample/swresample.h"
 }
 
 #include "args.h"
@@ -38,14 +38,15 @@ public:
   LibAvEncoder(Args args);
 
 private:
-  void InitCodec();
+  void initVideoCodec();
 
   Args config_;
 
-  AVCodecContext *codec_ctx_;
-
-  AVStream *stream_;
-  AVFormatContext *fmt_ctx_;
+  enum Context { Video = 0, AudioOut = 1, AudioIn = 2 };
+  AVCodecContext *codec_ctx_[3];
+  AVStream *stream_[3];
+  AVFormatContext *in_fmt_ctx_;
+  AVFormatContext *out_fmt_ctx_;
   //   int fps_;
   //   int width_;
   //   int height_;

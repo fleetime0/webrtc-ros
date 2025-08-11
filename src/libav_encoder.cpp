@@ -5,16 +5,16 @@
  * libav_encoder.cpp - libav video encoder.
  */
 
-#include <fcntl.h>
-#include <poll.h>
-#include <string.h>
-#include <sys/ioctl.h>
-#include <sys/mman.h>
+// #include <fcntl.h>
+// #include <poll.h>
+// #include <string.h>
+// #include <sys/ioctl.h>
+// #include <sys/mman.h>
 
-// #include <libdrm/drm_fourcc.h>
-#include <linux/videodev2.h>
+// // #include <libdrm/drm_fourcc.h>
+// #include <linux/videodev2.h>
 
-#include <chrono>
+// #include <chrono>
 #include <iostream>
 
 #include "libav_encoder.hpp"
@@ -22,7 +22,7 @@
 namespace {
 
 void encoderOptionsGeneral(Args args, AVCodecContext *codec) {
-  codec->framerate = {(int) (args.fps * 1000), 1000};
+  codec->framerate = av_d2q(args.fps, 1000);
   codec->profile = FF_PROFILE_UNKNOWN;
 
   std::string h264_profile = "baseline";
@@ -39,7 +39,7 @@ void encoderOptionsGeneral(Args args, AVCodecContext *codec) {
   codec->level = FF_LEVEL_UNKNOWN;
   codec->gop_size = args.fps;
 
-  codec->bit_rate = args.width * args.height * args.fps * 0.1;
+  codec->bit_rate = (int64_t) args.width * args.height * args.fps * 0.1;
 }
 
 void encoderOptionsLibx264(Args args, AVCodecContext *codec) {
@@ -64,619 +64,62 @@ void encoderOptionsLibx264(Args args, AVCodecContext *codec) {
 
 } // namespace
 
-void LibAvEncoder::InitCodec() {
+LibAvEncoder::LibAvEncoder(Args args) : config_(args), in_fmt_ctx_(nullptr), out_fmt_ctx_(nullptr) {
+  avdevice_register_all();
+
+  av_log_set_level(AV_LOG_INFO);
+
+  initVideoCodec();
+
+  av_dump_format(out_fmt_ctx_, 0, nullptr, 1);
+
+  
+  // LOG(2, "libav: codec init completed");
+}
+
+void LibAvEncoder::initVideoCodec() {
   const AVCodec *codec = avcodec_find_encoder_by_name("libx264");
   if (!codec)
     throw std::runtime_error("libav: cannot find video encoder libx264");
 
-  codec_ctx_ = avcodec_alloc_context3(codec);
-  if (!codec_ctx_)
+  codec_ctx_[Video] = avcodec_alloc_context3(codec);
+  if (!codec_ctx_[Video])
     throw std::runtime_error("libav: Cannot allocate video context");
 
-  codec_ctx_->width = config_.width;
-  codec_ctx_->height = config_.height;
-  // usec timebase
-  codec_ctx_->time_base = {1, 1000 * 1000};
-  codec_ctx_->sw_pix_fmt = AV_PIX_FMT_YUV420P;
-  codec_ctx_->pix_fmt = AV_PIX_FMT_YUV420P;
+  codec_ctx_[Video]->width = config_.width;
+  codec_ctx_[Video]->height = config_.height;
+  codec_ctx_[Video]->sw_pix_fmt = AV_PIX_FMT_YUV420P;
+  codec_ctx_[Video]->pix_fmt = AV_PIX_FMT_YUV420P;
 
   // Apply specific options.
-  encoderOptionsLibx264(config_, codec_ctx_);
+  encoderOptionsLibx264(config_, codec_ctx_[Video]);
 
   // Apply general options.
-  encoderOptionsGeneral(config_, codec_ctx_);
+  encoderOptionsGeneral(config_, codec_ctx_[Video]);
+
+  // usec timebase
+  codec_ctx_[Video]->time_base = av_inv_q(codec_ctx_[Video]->framerate);
 
   // Setup an appropriate stream/container format.
   const char *format = "rtp";
 
-  avformat_alloc_output_context2(&fmt_ctx_, nullptr, format, nullptr);
-  if (!fmt_ctx_)
+  avformat_alloc_output_context2(&out_fmt_ctx_, nullptr, format, nullptr);
+  if (!out_fmt_ctx_)
     throw std::runtime_error("libav: cannot allocate output context");
 
-  if (fmt_ctx_->oformat->flags & AVFMT_GLOBALHEADER)
-    codec_ctx_->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+  if (out_fmt_ctx_->oformat->flags & AVFMT_GLOBALHEADER)
+    codec_ctx_[Video]->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
 
-  int ret = avcodec_open2(codec_ctx_, codec, nullptr);
+  int ret = avcodec_open2(codec_ctx_[Video], codec, nullptr);
   if (ret < 0)
     throw std::runtime_error("libav: unable to open video codec: " + std::to_string(ret));
 
-  stream_ = avformat_new_stream(fmt_ctx_, codec);
-  if (!stream_)
+  stream_[Video] = avformat_new_stream(out_fmt_ctx_, codec);
+  if (!stream_[Video])
     throw std::runtime_error("libav: cannot allocate stream for vidout output context");
 
-  stream_->time_base = codec_ctx_->time_base;
+  stream_[Video]->time_base = AVRational{1, 90000};
 
-	stream_->avg_frame_rate = stream_->r_frame_rate = codec_ctx_->framerate;
-	avcodec_parameters_from_context(stream_->codecpar, codec_ctx_);
+  stream_[Video]->avg_frame_rate = stream_[Video]->r_frame_rate = codec_ctx_[Video]->framerate;
+  avcodec_parameters_from_context(stream_[Video]->codecpar, codec_ctx_[Video]);
 }
-
-// void LibAvEncoder::initAudioInCodec(VideoOptions const *options, StreamInfo const &info)
-// {
-// #if LIBAVUTIL_VERSION_MAJOR < 58
-// 	AVInputFormat *input_fmt = (AVInputFormat *)av_find_input_format(options->Get().audio_source.c_str());
-// #else
-// 	const AVInputFormat *input_fmt = (AVInputFormat *)av_find_input_format(options->Get().audio_source.c_str());
-// #endif
-
-// 	assert(in_fmt_ctx_ == nullptr);
-
-// 	int ret;
-// 	AVDictionary *format_opts = nullptr;
-
-// 	if (options->Get().audio_channels != 0)
-// 		ret = av_dict_set_int(&format_opts, "channels", options->Get().audio_channels, 0);
-
-// 	ret = avformat_open_input(&in_fmt_ctx_, options->Get().audio_device.c_str(), input_fmt, &format_opts);
-// 	if (ret < 0)
-// 	{
-// 		av_dict_free(&format_opts);
-// 		throw std::runtime_error("libav: cannot open " + options->Get().audio_source + " input device " +
-// 								 options->Get().audio_device);
-// 	}
-
-// 	av_dict_free(&format_opts);
-
-// 	avformat_find_stream_info(in_fmt_ctx_, nullptr);
-
-// 	stream_[AudioIn] = nullptr;
-// 	for (unsigned int i = 0; i < in_fmt_ctx_->nb_streams; i++)
-// 	{
-// 		if (in_fmt_ctx_->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO)
-// 		{
-// 			stream_[AudioIn] = in_fmt_ctx_->streams[i];
-// 			break;
-// 		}
-// 	}
-
-// 	if (!stream_[AudioIn])
-// 		throw std::runtime_error("libav: couldn't find a audio stream.");
-
-// 	const AVCodec *codec = avcodec_find_decoder(stream_[AudioIn]->codecpar->codec_id);
-// 	codec_ctx_[AudioIn] = avcodec_alloc_context3(codec);
-// 	avcodec_parameters_to_context(codec_ctx_[AudioIn], stream_[AudioIn]->codecpar);
-// 	// usec timebase
-// 	codec_ctx_[AudioIn]->time_base = { 1, 1000 * 1000 };
-// 	ret = avcodec_open2(codec_ctx_[AudioIn], codec, nullptr);
-// 	if (ret < 0)
-// 		throw std::runtime_error("libav: unable to open audio in codec: " + std::to_string(ret));
-// }
-
-// void LibAvEncoder::initAudioOutCodec(VideoOptions const *options, StreamInfo const &info)
-// {
-// 	const AVCodec *codec = avcodec_find_encoder_by_name(options->Get().audio_codec.c_str());
-// 	if (!codec)
-// 		throw std::runtime_error("libav: cannot find audio encoder " + options->Get().audio_codec);
-
-// 	codec_ctx_[AudioOut] = avcodec_alloc_context3(codec);
-// 	if (!codec_ctx_[AudioOut])
-// 		throw std::runtime_error("libav: cannot allocate audio in context");
-
-// 	assert(stream_[AudioIn]);
-
-// #if LIBAVUTIL_VERSION_MAJOR < 57
-// 	codec_ctx_[AudioOut]->channels = stream_[AudioIn]->codecpar->channels;
-// 	codec_ctx_[AudioOut]->channel_layout = av_get_default_channel_layout(stream_[AudioIn]->codecpar->channels);
-// #else
-// 	av_channel_layout_default(&codec_ctx_[AudioOut]->ch_layout, stream_[AudioIn]->codecpar->ch_layout.nb_channels);
-// #endif
-
-// 	codec_ctx_[AudioOut]->sample_rate = options->Get().audio_samplerate ? options->Get().audio_samplerate
-// 																  : stream_[AudioIn]->codecpar->sample_rate;
-// #if LIBAVCODEC_VERSION_MAJOR < 61
-// 	codec_ctx_[AudioOut]->sample_fmt = codec->sample_fmts[0];
-// #else
-// 	enum AVSampleFormat **sample_fmts = nullptr;
-// 	avcodec_get_supported_config(codec_ctx_[AudioOut], codec, AV_CODEC_CONFIG_SAMPLE_FORMAT, 0,
-// 								 (const void **)&sample_fmts, nullptr);
-// 	if (!sample_fmts)
-// 		throw std::runtime_error("libav: no supported sample formats for audio codec");
-// 	else
-// 		codec_ctx_[AudioOut]->sample_fmt = (*sample_fmts)[0];
-// #endif
-
-// 	codec_ctx_[AudioOut]->bit_rate = options->Get().audio_bitrate.bps();
-// 	// usec timebase
-// 	codec_ctx_[AudioOut]->time_base = { 1, 1000 * 1000 };
-
-// 	assert(out_fmt_ctx_);
-// 	if (out_fmt_ctx_->oformat->flags & AVFMT_GLOBALHEADER)
-// 		codec_ctx_[AudioOut]->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
-
-// 	int ret = avcodec_open2(codec_ctx_[AudioOut], codec, nullptr);
-// 	if (ret < 0)
-// 		throw std::runtime_error("libav: unable to open audio codec: " + std::to_string(ret));
-
-// 	stream_[AudioOut] = avformat_new_stream(out_fmt_ctx_, codec);
-// 	if (!stream_[AudioOut])
-// 		throw std::runtime_error("libav: cannot allocate stream for audio output context");
-
-// 	stream_[AudioOut]->time_base = codec_ctx_[AudioOut]->time_base;
-// 	avcodec_parameters_from_context(stream_[AudioOut]->codecpar, codec_ctx_[AudioOut]);
-// }
-
-// LibAvEncoder::LibAvEncoder(VideoOptions const *options, StreamInfo const &info)
-// 	: Encoder(options), output_ready_(false), abort_video_(false), abort_audio_(false), video_start_ts_(0),
-// 	  in_fmt_ctx_(nullptr), out_fmt_ctx_(nullptr), output_file_(options->Get().output), output_initialised_(false),
-// 	  elementary_stream_(false)
-// {
-// 	avdevice_register_all();
-
-// 	if (options->Get().verbose >= 2)
-// 		av_log_set_level(AV_LOG_VERBOSE);
-
-// 	initVideoCodec(options, info);
-// 	if (options->Get().libav_audio)
-// 	{
-// 		initAudioInCodec(options, info);
-// 		initAudioOutCodec(options, info);
-// 		av_dump_format(in_fmt_ctx_, 0, options_->Get().audio_device.c_str(), 0);
-// 	}
-
-// 	av_dump_format(out_fmt_ctx_, 0, output_file_.c_str(), 1);
-
-// 	LOG(2, "libav: codec init completed");
-
-// 	video_thread_ = std::thread(&LibAvEncoder::videoThread, this);
-
-// 	if (options->Get().libav_audio)
-// 		audio_thread_ = std::thread(&LibAvEncoder::audioThread, this);
-// }
-
-// LibAvEncoder::~LibAvEncoder()
-// {
-// 	if (options_->Get().libav_audio)
-// 	{
-// 		abort_audio_ = true;
-// 		audio_thread_.join();
-// 	}
-
-// 	abort_video_ = true;
-// 	video_thread_.join();
-
-// 	avformat_free_context(out_fmt_ctx_);
-// 	avcodec_free_context(&codec_ctx_[Video]);
-
-// 	if (options_->Get().libav_audio)
-// 	{
-// 		avformat_free_context(in_fmt_ctx_);
-// 		avcodec_free_context(&codec_ctx_[AudioIn]);
-// 		avcodec_free_context(&codec_ctx_[AudioOut]);
-// 	}
-
-// 	LOG(2, "libav: codec closed");
-// }
-
-// void LibAvEncoder::EncodeBuffer(int fd, size_t size, void *mem, StreamInfo const &info, int64_t timestamp_us)
-// {
-// 	AVFrame *frame = av_frame_alloc();
-// 	if (!frame)
-// 		throw std::runtime_error("libav: could not allocate AVFrame");
-
-// 	if (!video_start_ts_)
-// 	{
-// 		video_start_ts_ = timestamp_us;
-// 		LOG(2, "Video start timestamp : " << video_start_ts_ << " us");
-// 	}
-
-// 	frame->format = codec_ctx_[Video]->pix_fmt;
-// 	frame->width = info.width;
-// 	frame->height = info.height;
-// 	frame->linesize[0] = info.stride;
-// 	frame->linesize[1] = frame->linesize[2] = info.stride >> 1;
-// 	frame->pts = timestamp_us - video_start_ts_ +
-// 				 (options_->Get().av_sync.value < 0us ? -options_->Get().av_sync.get<std::chrono::microseconds>() : 0);
-
-// 	if (codec_ctx_[Video]->pix_fmt == AV_PIX_FMT_DRM_PRIME)
-// 	{
-// 		std::scoped_lock<std::mutex> lock(drm_queue_lock_);
-// 		drm_frame_queue_.emplace(std::make_unique<AVDRMFrameDescriptor>());
-// 		frame->buf[0] = av_buffer_create((uint8_t *)drm_frame_queue_.back().get(), sizeof(AVDRMFrameDescriptor),
-// 										 &LibAvEncoder::releaseBuffer, this, 0);
-// 		frame->data[0] = frame->buf[0]->data;
-
-// 		AVDRMFrameDescriptor *desc = (AVDRMFrameDescriptor *)frame->data[0];
-// 		desc->nb_objects = 1;
-// 		desc->objects[0].fd = fd;
-// 		desc->objects[0].size = size;
-// 		desc->objects[0].format_modifier = DRM_FORMAT_MOD_INVALID;
-
-// 		desc->nb_layers = 1;
-// 		desc->layers[0].format = DRM_FORMAT_YUV420;
-// 		desc->layers[0].nb_planes = 3;
-// 		desc->layers[0].planes[0].object_index = 0;
-// 		desc->layers[0].planes[0].offset = 0;
-// 		desc->layers[0].planes[0].pitch = info.stride;
-// 		desc->layers[0].planes[1].object_index = 0;
-// 		desc->layers[0].planes[1].offset = info.stride * info.height;
-// 		desc->layers[0].planes[1].pitch = info.stride >> 1;
-// 		desc->layers[0].planes[2].object_index = 0;
-// 		desc->layers[0].planes[2].offset = info.stride * info.height * 5 / 4;
-// 		desc->layers[0].planes[2].pitch = info.stride >> 1;
-// 	}
-// 	else
-// 	{
-// 		frame->buf[0] = av_buffer_create((uint8_t *)mem, size, &LibAvEncoder::releaseBuffer, this, 0);
-// 		av_image_fill_pointers(frame->data, AV_PIX_FMT_YUV420P, frame->height, frame->buf[0]->data, frame->linesize);
-// 		av_frame_make_writable(frame);
-// 	}
-
-// 	std::scoped_lock<std::mutex> lock(video_mutex_);
-// 	frame_queue_.push(frame);
-// 	video_cv_.notify_all();
-// }
-
-// void LibAvEncoder::initOutput()
-// {
-// 	int ret;
-
-// 	// Copy the global header from the video encode context once the first frame
-// 	// has been encoded.
-// 	avcodec_parameters_from_context(stream_[Video]->codecpar, codec_ctx_[Video]);
-
-// 	char err[64];
-// 	if (!(out_fmt_ctx_->flags & AVFMT_NOFILE))
-// 	{
-// 		std::string filename = output_file_.empty() ? "/dev/null" : output_file_;
-
-// 		// libav uses "pipe:" for stdout
-// 		if (filename == "-")
-// 			filename = std::string("pipe:");
-
-// 		ret = avio_open2(&out_fmt_ctx_->pb, filename.c_str(), AVIO_FLAG_WRITE, nullptr, nullptr);
-// 		if (ret < 0)
-// 		{
-// 			av_strerror(ret, err, sizeof(err));
-// 			throw std::runtime_error("libav: unable to open output mux for " + output_file_ + ": " + err);
-// 		}
-// 	}
-
-// 	ret = avformat_write_header(out_fmt_ctx_, nullptr);
-// 	if (ret < 0)
-// 	{
-// 		av_strerror(ret, err, sizeof(err));
-// 		throw std::runtime_error("libav: unable write output mux header for " + output_file_ + ": " + err);
-// 	}
-
-// 	output_initialised_ = true;
-// }
-
-// void LibAvEncoder::deinitOutput()
-// {
-// 	if (!out_fmt_ctx_)
-// 		return;
-
-// 	if (!output_initialised_)
-// 		return;
-
-// 	av_write_trailer(out_fmt_ctx_);
-
-// 	if (!(out_fmt_ctx_->flags & AVFMT_NOFILE))
-// 		avio_closep(&out_fmt_ctx_->pb);
-// }
-
-// void LibAvEncoder::encode(AVPacket *pkt, unsigned int stream_id)
-// {
-// 	int ret = 0;
-
-// 	while (ret >= 0)
-// 	{
-// 		ret = avcodec_receive_packet(codec_ctx_[stream_id], pkt);
-
-// 		if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
-// 		{
-// 			av_packet_unref(pkt);
-// 			break;
-// 		}
-// 		else if (ret < 0)
-// 			throw std::runtime_error("libav: error receiving packet: " + std::to_string(ret));
-
-// 		// Initialise the ouput mux on the first received video packet, as we may need
-// 		// to copy global header data from the encoder.
-// 		if (stream_id == Video && !output_ready_)
-// 		{
-// 			initOutput();
-// 			output_ready_ = true;
-// 		}
-
-// 		pkt->stream_index = stream_id;
-// 		pkt->pos = -1;
-// 		pkt->duration = 0;
-
-// 		// Rescale from the codec timebase to the stream timebase.
-// 		av_packet_rescale_ts(pkt, codec_ctx_[stream_id]->time_base, out_fmt_ctx_->streams[stream_id]->time_base);
-
-// 		if (!elementary_stream_)
-// 		{
-// 			std::scoped_lock<std::mutex> lock(output_mutex_);
-// 			// pkt is now blank (av_interleaved_write_frame() takes ownership of
-// 			// its contents and resets pkt), so that no unreferencing is necessary.
-// 			// This would be different if one used av_write_frame().
-// 			ret = av_interleaved_write_frame(out_fmt_ctx_, pkt);
-// 			if (ret < 0)
-// 			{
-// 				char err[AV_ERROR_MAX_STRING_SIZE];
-// 				av_strerror(ret, err, sizeof(err));
-// 				throw std::runtime_error("libav: error writing output: " + std::string(err));
-// 			}
-// 		}
-// 		else
-// 		{
-// 			// H.264 elementary streams use the Output class to write encoded data so that they can use features such as
-// 			// pause/circular/split/metadata, etc.
-// 			output_ready_callback_(pkt->data, pkt->size, pkt->pts, pkt->flags & AV_PKT_FLAG_KEY);
-// 		}
-// 	}
-// }
-
-// extern "C" void LibAvEncoder::releaseBuffer(void *opaque, uint8_t *data)
-// {
-// 	LibAvEncoder *enc = static_cast<LibAvEncoder *>(opaque);
-
-// 	enc->input_done_callback_(nullptr);
-
-// 	// Pop the entry from the queue to release the AVDRMFrameDescriptor allocation
-// 	std::scoped_lock<std::mutex> lock(enc->drm_queue_lock_);
-// 	if (!enc->drm_frame_queue_.empty())
-// 		enc->drm_frame_queue_.pop();
-// }
-
-// void LibAvEncoder::videoThread()
-// {
-// 	AVPacket *pkt = av_packet_alloc();
-// 	AVFrame *frame = nullptr;
-
-// 	while (true)
-// 	{
-// 		{
-// 			std::unique_lock<std::mutex> lock(video_mutex_);
-// 			while (true)
-// 			{
-// 				using namespace std::chrono_literals;
-// 				// Must check the abort first, to allow items in the output
-// 				// queue to have a callback.
-// 				if (abort_video_ && frame_queue_.empty())
-// 					goto done;
-
-// 				if (!frame_queue_.empty())
-// 				{
-// 					frame = frame_queue_.front();
-// 					frame_queue_.pop();
-// 					break;
-// 				}
-// 				else
-// 					video_cv_.wait_for(lock, 200ms);
-// 			}
-// 		}
-
-// 		int ret = avcodec_send_frame(codec_ctx_[Video], frame);
-// 		if (ret < 0)
-// 			throw std::runtime_error("libav: error encoding frame: " + std::to_string(ret));
-
-// 		encode(pkt, Video);
-// 		av_frame_free(&frame);
-// 	}
-
-// done:
-// 	// Flush the encoder
-// 	avcodec_send_frame(codec_ctx_[Video], nullptr);
-// 	encode(pkt, Video);
-
-// 	av_packet_free(&pkt);
-// 	deinitOutput();
-// }
-
-// void LibAvEncoder::audioThread()
-// {
-// 	const AVSampleFormat required_fmt = codec_ctx_[AudioOut]->sample_fmt;
-// 	// Amount of time to pre-record audio into the fifo before the first video frame.
-// 	constexpr std::chrono::milliseconds pre_record_time(10);
-// 	// Threshold for correction between video and audio stream start times.
-// 	constexpr std::chrono::milliseconds min_start_delta(10);
-// 	int ret;
-
-// #if LIBAVUTIL_VERSION_MAJOR < 57
-// 	uint32_t out_channels = codec_ctx_[AudioOut]->channels;
-// #else
-// 	uint32_t out_channels = codec_ctx_[AudioOut]->ch_layout.nb_channels;
-// #endif
-
-// 	SwrContext *conv;
-// 	AVAudioFifo *fifo;
-
-// #if LIBAVUTIL_VERSION_MAJOR < 57
-// 	conv = swr_alloc_set_opts(nullptr, av_get_default_channel_layout(codec_ctx_[AudioOut]->channels), required_fmt,
-// 							  stream_[AudioOut]->codecpar->sample_rate,
-// 							  av_get_default_channel_layout(codec_ctx_[AudioIn]->channels),
-// 							  codec_ctx_[AudioIn]->sample_fmt, codec_ctx_[AudioIn]->sample_rate, 0, nullptr);
-
-// 	// 2 seconds FIFO buffer
-// 	fifo = av_audio_fifo_alloc(required_fmt, codec_ctx_[AudioOut]->channels, codec_ctx_[AudioOut]->sample_rate * 2);
-// #else
-// 	ret = swr_alloc_set_opts2(&conv, &codec_ctx_[AudioOut]->ch_layout, required_fmt,
-// 							  stream_[AudioOut]->codecpar->sample_rate, &codec_ctx_[AudioIn]->ch_layout,
-// 							  codec_ctx_[AudioIn]->sample_fmt, codec_ctx_[AudioIn]->sample_rate, 0, nullptr);
-// 	if (ret < 0)
-// 		throw std::runtime_error("libav: cannot create swr context");
-
-// 	// 2 seconds FIFO buffer
-// 	fifo = av_audio_fifo_alloc(required_fmt, codec_ctx_[AudioOut]->ch_layout.nb_channels,
-// 							   codec_ctx_[AudioOut]->sample_rate * 2);
-// #endif
-
-// 	swr_init(conv);
-
-// 	AVPacket *in_pkt = av_packet_alloc();
-// 	AVPacket *out_pkt = av_packet_alloc();
-// 	AVFrame *in_frame = av_frame_alloc();
-// 	uint8_t **samples = nullptr;
-// 	int sample_linesize = 0;
-
-// 	int max_output_samples = av_rescale_rnd(codec_ctx_[AudioOut]->frame_size, codec_ctx_[AudioOut]->sample_rate,
-// 											codec_ctx_[AudioIn]->sample_rate, AV_ROUND_UP);
-// 	ret = av_samples_alloc_array_and_samples(&samples, &sample_linesize, out_channels, max_output_samples,
-// required_fmt, 											 0); 	if (ret < 0) 		throw std::runtime_error("libav: failed to alloc sample
-// array");
-
-// 	int64_t audio_start_ts = 0;
-// 	int64_t audio_samples_processed = 0;
-
-// 	while (!abort_audio_)
-// 	{
-// 		// Audio In
-// 		ret = av_read_frame(in_fmt_ctx_, in_pkt);
-// 		if (ret < 0)
-// 			throw std::runtime_error("libav: cannot read audio in frame");
-
-// 		// Track the first audio timestamp for synchronization
-// 		if (!audio_start_ts && in_pkt->pts != AV_NOPTS_VALUE)
-// 		{
-// 			audio_start_ts = av_rescale_q(in_pkt->pts, stream_[AudioIn]->time_base, { 1, 1000 * 1000 });
-// 			LOG(2, "libav: Audio start timestamp: " << audio_start_ts << " us");
-// 		}
-
-// 		ret = avcodec_send_packet(codec_ctx_[AudioIn], in_pkt);
-// 		if (ret < 0)
-// 			throw std::runtime_error("libav: cannot send pkt for decoding audio in");
-
-// 		ret = avcodec_receive_frame(codec_ctx_[AudioIn], in_frame);
-// 		if (ret && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF)
-// 			throw std::runtime_error("libav: error getting decoded audio in frame");
-
-// 		// Audio Resample/Conversion
-// 		int num_output_samples =
-// 			av_rescale_rnd(swr_get_delay(conv, codec_ctx_[AudioIn]->sample_rate) + in_frame->nb_samples,
-// 						   codec_ctx_[AudioOut]->sample_rate, codec_ctx_[AudioIn]->sample_rate, AV_ROUND_UP);
-
-// 		if (num_output_samples > max_output_samples)
-// 		{
-// 			av_freep(&samples[0]);
-// 			max_output_samples = num_output_samples;
-// 			ret = av_samples_alloc_array_and_samples(&samples, &sample_linesize, out_channels, max_output_samples,
-// 													 required_fmt, 0);
-// 			if (ret < 0)
-// 				throw std::runtime_error("libav: failed to alloc sample array");
-// 		}
-
-// 		ret = swr_convert(conv, samples, num_output_samples, (const uint8_t **)in_frame->extended_data,
-// 						  in_frame->nb_samples);
-// 		if (ret < 0)
-// 			throw std::runtime_error("libav: swr_convert failed");
-
-// 		// Pre-record some audio before the encoded video frame is available.
-// 		if (!output_ready_)
-// 		{
-// 			using namespace std::chrono_literals;
-// 			// Pre-record number of samples needed.
-// 			const unsigned int ns = pre_record_time * stream_[AudioOut]->codecpar->sample_rate / 1s;
-// 			unsigned int r = ns % codec_ctx_[AudioOut]->frame_size;
-// 			// Number of pre-record samples rounded to the frame size.
-// 			unsigned int ps = !r ? ns : ns + codec_ctx_[AudioOut]->frame_size - r;
-// 			// FIFO size with samples from the next frame added.
-// 			unsigned int fs = av_audio_fifo_size(fifo) + num_output_samples;
-// 			if (fs > ps)
-// 				av_audio_fifo_drain(fifo, fs - ps);
-// 		}
-
-// 		if (av_audio_fifo_space(fifo) < num_output_samples)
-// 		{
-// 			LOG(1, "libav: Draining audio fifo, configure a larger size");
-// 			av_audio_fifo_drain(fifo, num_output_samples);
-// 		}
-
-// 		av_audio_fifo_write(fifo, (void **)samples, num_output_samples);
-
-// 		av_frame_unref(in_frame);
-// 		av_packet_unref(in_pkt);
-
-// 		// Not yet ready to generate encoded audio!
-// 		if (!output_ready_ || av_audio_fifo_size(fifo) < codec_ctx_[AudioOut]->frame_size)
-// 			continue;
-
-// 		// Audio Out
-// 		while (av_audio_fifo_size(fifo) >= codec_ctx_[AudioOut]->frame_size)
-// 		{
-// 			AVFrame *out_frame = av_frame_alloc();
-// 			out_frame->nb_samples = codec_ctx_[AudioOut]->frame_size;
-
-// #if LIBAVUTIL_VERSION_MAJOR < 57
-// 			out_frame->channels = codec_ctx_[AudioOut]->channels;
-// 			out_frame->channel_layout = av_get_default_channel_layout(codec_ctx_[AudioOut]->channels);
-// #else
-// 			av_channel_layout_copy(&out_frame->ch_layout, &codec_ctx_[AudioOut]->ch_layout);
-// #endif
-
-// 			out_frame->format = required_fmt;
-// 			out_frame->sample_rate = codec_ctx_[AudioOut]->sample_rate;
-
-// 			av_frame_get_buffer(out_frame, 0);
-// 			av_audio_fifo_read(fifo, (void **)out_frame->data, codec_ctx_[AudioOut]->frame_size);
-
-// 			int64_t sample_time_us =
-// 				av_rescale_q(audio_samples_processed, { 1, codec_ctx_[AudioOut]->sample_rate }, { 1, 1000 * 1000 });
-// 			int64_t audio_timestamp = audio_start_ts + sample_time_us;
-
-// 			int64_t delta = audio_start_ts - (int64_t)video_start_ts_;
-// 			if (std::abs(delta) > std::chrono::duration_cast<std::chrono::microseconds>(min_start_delta).count())
-// 				audio_timestamp -= delta;
-
-// 			// Make the TS relative to the start of recording.
-// 			audio_timestamp = std::max<int64_t>(audio_timestamp - audio_start_ts, 0);
-
-// 			// Apply synchronization offset
-// 			audio_timestamp = audio_timestamp +
-// 				(options_->Get().av_sync.value > 0us ? options_->Get().av_sync.get<std::chrono::microseconds>() : 0);
-
-// 			out_frame->pts = audio_timestamp;
-// 			audio_samples_processed += codec_ctx_[AudioOut]->frame_size;
-
-// 			ret = avcodec_send_frame(codec_ctx_[AudioOut], out_frame);
-// 			if (ret < 0)
-// 				throw std::runtime_error("libav: error encoding frame: " + std::to_string(ret));
-
-// 			encode(out_pkt, AudioOut);
-// 			av_frame_free(&out_frame);
-// 		}
-
-// 		// Avoid spinning this thread.
-// 		std::this_thread::sleep_for(5ms);
-// 	}
-
-// 	// Flush the encoder
-// 	avcodec_send_frame(codec_ctx_[AudioOut], nullptr);
-// 	encode(out_pkt, AudioOut);
-
-// 	swr_free(&conv);
-// 	av_freep(&samples[0]);
-// 	av_audio_fifo_free(fifo);
-
-// 	av_packet_free(&in_pkt);
-// 	av_packet_free(&out_pkt);
-// 	av_frame_free(&in_frame);
-// }
-
-// static Encoder *Create(VideoOptions *options, StreamInfo const &info)
-// {
-// 	return new LibAvEncoder(options, info);
-// }
-
-// static RegisterEncoder reg("libav", &Create);

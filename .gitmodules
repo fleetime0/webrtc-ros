@@ -1,3 +1,6 @@
 [submodule "deps/libdatachannel"]
 	path = deps/libdatachannel
 	url = https://github.com/paullouisageneau/libdatachannel.git
+[submodule "deps/libyuv"]
+	path = deps/libyuv
+	url = https://chromium.googlesource.com/libyuv/libyuv
