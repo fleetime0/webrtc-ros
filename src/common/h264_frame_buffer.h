@@ -8,23 +8,22 @@ class H264FrameBuffer {
 public:
   using Deleter = std::function<void(uint8_t *)>;
 
-  static std::shared_ptr<H264FrameBuffer> Create(uint8_t *data, size_t size, bool keyframe, int64_t pts,
-                                                 Deleter deleter = nullptr);
+  static std::shared_ptr<H264FrameBuffer> Create(uint8_t *data, size_t size, bool keyframe, int64_t timestamp);
 
-  H264FrameBuffer(uint8_t *data, size_t size, bool keyframe, int64_t pts, Deleter deleter);
+  H264FrameBuffer(uint8_t *data, size_t size, bool keyframe, int64_t timestamp);
 
   ~H264FrameBuffer() = default;
 
   const uint8_t *data() const;
   size_t size() const;
   bool isKeyFrame() const;
-  int64_t pts() const;
+  int64_t timestamp() const;
 
 private:
-  std::shared_ptr<uint8_t> data_;
+  uint8_t *data_;
   size_t size_;
   bool keyframe_;
-  int64_t pts_;
+  int64_t timestamp_;
 };
 
 #endif // H264_FRAME_BUFFER_H

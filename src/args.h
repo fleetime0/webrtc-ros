@@ -55,10 +55,9 @@ struct Args {
   int width = 640;
   int height = 480;
   int rotation = 0;
-  uint32_t format = V4L2_PIX_FMT_YUYV;
+  uint32_t format = V4L2_PIX_FMT_MJPEG;
 
   // h264
-  
   int bitrate = 1000;
 
   // webrtc

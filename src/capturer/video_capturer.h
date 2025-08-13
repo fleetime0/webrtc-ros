@@ -12,7 +12,7 @@
 class VideoCapturer {
 public:
   VideoCapturer() = default;
-  ~VideoCapturer() { frame_buffer_subject_.UnSubscribe(); }
+  virtual ~VideoCapturer() { frame_buffer_subject_.UnSubscribe(); }
 
   virtual int fps() const = 0;
   virtual int width() const = 0;

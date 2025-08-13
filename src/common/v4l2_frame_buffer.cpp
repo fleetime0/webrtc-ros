@@ -103,7 +103,7 @@ std::shared_ptr<I420Buffer> V4L2FrameBuffer::ToI420() {
                               i420_buffer.get()->MutableDataY(), i420_buffer.get()->StrideY(),
                               i420_buffer.get()->MutableDataU(), i420_buffer.get()->StrideU(),
                               i420_buffer.get()->MutableDataV(), i420_buffer.get()->StrideV(), 0, 0, width_, height_,
-                              width_, height_, libyuv::kRotate0, format_) < 0) {
+                              width_, height_, libyuv::kRotate0, libyuv::FOURCC_MJPG) < 0) {
       ERROR_PRINT("Mjpeg ConvertToI420 Failed");
     }
   }

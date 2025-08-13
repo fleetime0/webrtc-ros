@@ -10,6 +10,9 @@
 #include <boost/beast/http.hpp>
 #include <boost/beast/version.hpp>
 
+#include "args.h"
+#include "encoder/encoder.hpp"
+
 namespace beast = boost::beast;
 namespace http = beast::http;
 using tcp = boost::asio::ip::tcp;
@@ -21,10 +24,10 @@ struct IceCandidates {
 };
 
 class HttpService : public std::enable_shared_from_this<HttpService> {
-  public:
-  static std::shared_ptr<HttpService> Create(uint16_t http_port, boost::asio::io_context &ioc);
+public:
+  static std::shared_ptr<HttpService> Create(Args args, boost::asio::io_context &ioc);
 
-  HttpService(uint16_t http_port, boost::asio::io_context &ioc);
+  HttpService(Args args, boost::asio::io_context &ioc);
   ~HttpService();
 
   void Start() {
@@ -35,11 +38,11 @@ class HttpService : public std::enable_shared_from_this<HttpService> {
     Connect();
   }
 
-  protected:
+protected:
   void Connect();
   void Disconnect();
 
-  private:
+private:
   std::thread worker_;
 
   uint16_t port_;
@@ -49,7 +52,7 @@ class HttpService : public std::enable_shared_from_this<HttpService> {
 };
 
 class HttpSession : public std::enable_shared_from_this<HttpSession> {
-  public:
+public:
   static std::shared_ptr<HttpSession> Create(tcp::socket socket, std::shared_ptr<HttpService> http_service);
 
   HttpSession(tcp::socket socket, std::shared_ptr<HttpService> http_service) :
@@ -58,7 +61,7 @@ class HttpSession : public std::enable_shared_from_this<HttpSession> {
 
   void Start() { ReadRequest(); }
 
-  private:
+private:
   std::shared_ptr<HttpService> http_service_;
 
   beast::tcp_stream stream_;

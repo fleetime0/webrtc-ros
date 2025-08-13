@@ -58,29 +58,25 @@ void encoderOptionsLibx264([[maybe_unused]] Args args, AVCodecContext *codec) {
 std::shared_ptr<LibAvEncoder> LibAvEncoder::Create(std::shared_ptr<VideoCapturer> video_src, Args args) {
   auto ptr = std::make_shared<LibAvEncoder>(args);
   ptr->SubscribeVideoSource(video_src);
-  ptr->StartEncoder();
 
   return ptr;
 }
 
-LibAvEncoder::LibAvEncoder(Args args) : config_(args), abort_video_(false), video_start_ts_(0) {
+LibAvEncoder::LibAvEncoder(Args args) : config_(args), video_start_ts_(0) {
   av_log_set_level(AV_LOG_INFO);
 
   initVideoCodec();
 
+  pkt_[Video] = av_packet_alloc();
   DEBUG_PRINT("libav: codec init completed");
 }
 
 LibAvEncoder::~LibAvEncoder() {
-  abort_video_ = true;
-  video_thread_.join();
-
   avcodec_free_context(&codec_ctx_[Video]);
 
+  av_packet_free(&pkt_[Video]);
   DEBUG_PRINT("libav: codec closed");
 }
-
-void LibAvEncoder::StartEncoder() { video_thread_ = std::thread(&LibAvEncoder::videoThread, this); }
 
 void LibAvEncoder::EncodeBuffer(std::shared_ptr<V4L2FrameBuffer> buffer) {
   auto t_start = std::chrono::high_resolution_clock::now();
@@ -143,9 +139,13 @@ void LibAvEncoder::EncodeBuffer(std::shared_ptr<V4L2FrameBuffer> buffer) {
   av_image_fill_pointers(frame->data, AV_PIX_FMT_YUV420P, frame->height, frame->buf[0]->data, frame->linesize);
   av_frame_make_writable(frame);
 
-  std::scoped_lock<std::mutex> lock(video_mutex_);
-  frame_queue_.push(frame);
-  video_cv_.notify_all();
+  int ret = avcodec_send_frame(codec_ctx_[Video], frame);
+  if (ret < 0)
+    throw std::runtime_error("libav: error encoding frame: " + std::to_string(ret));
+
+  encode(pkt_[Video], Video);
+
+  av_frame_free(&frame);
 
   // 记录结束时间
   auto t_end = std::chrono::high_resolution_clock::now();
@@ -199,72 +199,14 @@ void LibAvEncoder::encode(AVPacket *pkt, unsigned int stream_id) {
     } else if (ret < 0)
       throw std::runtime_error("libav: error receiving packet: " + std::to_string(ret));
 
-    uint32_t rtp_ts = (uint32_t) av_rescale_q(pkt->pts, codec_ctx_[Video]->time_base, AVRational{1, 90000});
     std::cout << "[LibAvEncoder] stream=" << pkt->stream_index << " size=" << pkt->size << " pts=" << pkt->pts
               << " dts=" << pkt->dts << " duration=" << pkt->duration << " flags=" << pkt->flags << std::endl;
+    bool key = (pkt->flags & AV_PKT_FLAG_KEY) != 0;
+    auto frame_buffer = H264FrameBuffer::Create(pkt->data, pkt->size, key, pkt->pts);
+    NextFrameBuffer(frame_buffer);
+
     av_packet_unref(pkt);
   }
-}
-
-void LibAvEncoder::videoThread() {
-  AVPacket *pkt = av_packet_alloc();
-  AVFrame *frame = nullptr;
-
-  using clock = std::chrono::steady_clock;
-  static double enc_min_ms = 1e300;
-  static double enc_max_ms = 0.0;
-  static long double enc_sum_ms = 0.0L;
-  static uint64_t enc_cnt = 0;
-
-  while (true) {
-    {
-      std::unique_lock<std::mutex> lock(video_mutex_);
-      while (true) {
-        using namespace std::chrono_literals;
-        // Must check the abort first, to allow items in the output
-        // queue to have a callback.
-        if (abort_video_ && frame_queue_.empty())
-          goto done;
-
-        if (!frame_queue_.empty()) {
-          frame = frame_queue_.front();
-          frame_queue_.pop();
-          break;
-        } else
-          video_cv_.wait_for(lock, 200ms);
-      }
-    }
-
-    auto t0 = clock::now();
-    int ret = avcodec_send_frame(codec_ctx_[Video], frame);
-    if (ret < 0)
-      throw std::runtime_error("libav: error encoding frame: " + std::to_string(ret));
-
-    encode(pkt, Video);
-    auto t1 = clock::now();
-
-    // 统计耗时
-    double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
-    enc_min_ms = std::min(enc_min_ms, ms);
-    enc_max_ms = std::max(enc_max_ms, ms);
-    enc_sum_ms += ms;
-    ++enc_cnt;
-
-    // 每 60 帧打一次日志
-    if (enc_cnt % 60 == 0) {
-      double avg = static_cast<double>(enc_sum_ms) / enc_cnt;
-      std::cout << "[enc]  avg=" << avg << " ms, min=" << enc_min_ms << " ms, max=" << enc_max_ms << " ms" << std::endl;
-    }
-
-    av_frame_free(&frame);
-  }
-
-done:
-  // Flush the encoder
-  avcodec_send_frame(codec_ctx_[Video], nullptr);
-  encode(pkt, Video);
-
-  av_packet_free(&pkt);
 }
 
 extern "C" void LibAvEncoder::releaseBuffer(void *opaque, uint8_t *) {

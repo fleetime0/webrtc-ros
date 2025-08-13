@@ -26,8 +26,6 @@ public:
   LibAvEncoder(Args args);
   ~LibAvEncoder();
 
-  void StartEncoder() override;
-
 protected:
   void EncodeBuffer(std::shared_ptr<V4L2FrameBuffer> buffer) override;
 
@@ -42,9 +40,10 @@ private:
 
   Args config_;
 
-  bool abort_video_;
   uint64_t video_start_ts_;
 
   enum Context { Video = 0, Audio = 1 };
   AVCodecContext *codec_ctx_[2];
+
+  AVPacket *pkt_[2];
 };

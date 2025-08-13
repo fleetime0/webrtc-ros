@@ -14,14 +14,50 @@ std::string GenerateUuid() {
 }
 } // namespace utils
 
-std::shared_ptr<RtcPeer> RtcPeer::Create(PeerConfig config) { return std::make_shared<RtcPeer>(std::move(config)); }
+void RtcPeer::SubscribeEncoder(std::shared_ptr<Encoder> encoder) {
+  encoder_observer_ = encoder->AsFrameBufferObservable();
+  encoder_observer_->Subscribe([this](std::shared_ptr<H264FrameBuffer> buffer) {
+    if (!start_ts_)
+      start_ts_ = buffer->timestamp();
+    const int64_t ts_us = buffer->timestamp();
+    track_->sendFrame(reinterpret_cast<const rtc::byte *>(buffer->data()), buffer->size(),
+                      std::chrono::duration<double, std::micro>(ts_us - start_ts_));
+  });
+}
+
+std::shared_ptr<RtcPeer> RtcPeer::Create(std::shared_ptr<Encoder> encoder, PeerConfig config) {
+  auto ptr = std::make_shared<RtcPeer>(config);
+  auto pc = std::make_shared<rtc::PeerConnection>(config);
+  ptr->SetPeer(pc);
+
+  rtc::Description::Video video("video", rtc::Description::Direction::SendOnly);
+  video.addH264Codec(96);
+  video.addSSRC(42, "video-send");
+  auto track = pc->addTrack(video);
+  // create RTP configuration
+  auto rtpConfig =
+          std::make_shared<rtc::RtpPacketizationConfig>(42, "video-send", 96, rtc::H264RtpPacketizer::ClockRate);
+  // create packetizer
+  auto packetizer = std::make_shared<rtc::H264RtpPacketizer>(rtc::NalUnit::Separator::StartSequence, rtpConfig);
+  // set handler
+  track->setMediaHandler(packetizer);
+
+  ptr->SetTrack(track);
+
+  pc->setLocalDescription();
+
+  ptr->SubscribeEncoder(encoder);
+
+  return ptr;
+}
 
 RtcPeer::RtcPeer(PeerConfig config) :
     timeout_(config.timeout), id_(utils::GenerateUuid()), has_candidates_in_sdp_(config.has_candidates_in_sdp),
-    is_connected_(false), is_complete_(false) {}
+    is_connected_(false), is_complete_(false), start_ts_(0) {}
 
 RtcPeer::~RtcPeer() {
   Terminate();
+  encoder_observer_.reset();
   DEBUG_PRINT("peer connection (%s) was destroyed!", id_.c_str());
 }
 
@@ -67,6 +103,9 @@ void RtcPeer::SetPeer(std::shared_ptr<rtc::PeerConnection> peer) {
 }
 
 std::shared_ptr<rtc::PeerConnection> RtcPeer::GetPeer() { return peer_connection_; }
+
+void RtcPeer::SetTrack(std::shared_ptr<rtc::Track> track) { track_ = std::move(track); }
+std::shared_ptr<rtc::Track> RtcPeer::GetTrack() { return track_; }
 
 std::string RtcPeer::RestartIce(std::string ice_ufrag, std::string ice_pwd) {
   rtc::Description remote_desc = peer_connection_->remoteDescription().value();

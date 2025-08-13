@@ -7,6 +7,7 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 find_package(Threads REQUIRED)
+find_package(JPEG REQUIRED)
 find_package(Boost CONFIG REQUIRED COMPONENTS system thread)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(AVCODEC REQUIRED libavcodec)
@@ -17,17 +18,15 @@ add_subdirectory(deps/libdatachannel)
 
 add_executable(${PROJECT_NAME}
   src/main.cpp
-  # src/http_service.cpp
-  # src/webrtc_ros.cpp
-  # src/rtc/rtc_peer.cpp
+  # src/signaling/http_service.cpp
+  src/v4l2_webrtc.cpp
+  src/rtc/rtc_peer.cpp
   src/common/v4l2_utils.cpp
   src/common/logging.cpp
   src/common/h264_frame_buffer.cpp
   src/common/v4l2_frame_buffer.cpp
   src/capturer/v4l2_capturer.cpp
   src/encoder/libav_encoder.cpp
-
-  # src/openh264_encoder.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -47,6 +46,7 @@ target_link_libraries(${PROJECT_NAME}
   LibDataChannel::LibDataChannel
   Threads::Threads
   yuv
+  JPEG::JPEG
   ${AVCODEC_LIBRARIES}
   ${AVUTIL_LIBRARIES}
 )

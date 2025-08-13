@@ -13,14 +13,21 @@
 class Encoder {
 public:
   Encoder() = default;
-  ~Encoder() {}
+  virtual ~Encoder() {
+    video_observer_.reset();
+    frame_buffer_subject_.UnSubscribe();
+  }
 
-  virtual void StartEncoder() = 0;
+  std::shared_ptr<Observable<std::shared_ptr<H264FrameBuffer>>> AsFrameBufferObservable() {
+    return frame_buffer_subject_.AsObservable();
+  }
 
 protected:
   virtual void EncodeBuffer(std::shared_ptr<V4L2FrameBuffer> buffer) = 0;
 
   virtual void SubscribeVideoSource(std::shared_ptr<VideoCapturer> video_src) = 0;
+
+  void NextFrameBuffer(std::shared_ptr<H264FrameBuffer> frame_buffer) { frame_buffer_subject_.Next(frame_buffer); }
 
   std::shared_ptr<Observable<std::shared_ptr<V4L2FrameBuffer>>> video_observer_;
 
