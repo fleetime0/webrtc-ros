@@ -103,7 +103,7 @@ bool V4L2Util::QueueBuffers(int fd, V4L2BufferGroup *gbuffer) {
 
 std::unordered_set<std::string> V4L2Util::GetDeviceSupportedFormats(const char *file) {
   int fd = V4L2Util::OpenDevice(file);
-  v4l2_fmtdesc fmtdesc = {0};
+  v4l2_fmtdesc fmtdesc{};
   fmtdesc.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   std::unordered_set<std::string> formats;
 
@@ -166,7 +166,7 @@ bool V4L2Util::SetFormat(int fd, V4L2BufferGroup *gbuffer, int width, int height
   // use the  return format
   pixel_format = fmt.fmt.pix_mp.pixelformat;
 
-  if (fmt.fmt.pix_mp.width != width || fmt.fmt.pix_mp.height != height) {
+  if (fmt.fmt.pix_mp.width != static_cast<__u32>(width) || fmt.fmt.pix_mp.height != static_cast<__u32>(height)) {
     ERROR_PRINT("fd(%d) input size (%dx%d) doesn't match driver's output size (%dx%d): %s", fd, width, height,
                 fmt.fmt.pix_mp.width, fmt.fmt.pix_mp.height, strerror(EINVAL));
     throw std::runtime_error("the frame size doesn't match");

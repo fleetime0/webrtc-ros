@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <iostream>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -54,8 +55,11 @@ struct Args {
   int width = 640;
   int height = 480;
   int rotation = 0;
-  uint32_t format = V4L2_PIX_FMT_MJPEG;
-  std::string v4l2_format = "mjpeg";
+  uint32_t format = V4L2_PIX_FMT_YUYV;
+
+  // h264
+  
+  int bitrate = 1000;
 
   // webrtc
   int peer_timeout = 10;

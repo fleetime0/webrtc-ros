@@ -17,7 +17,7 @@ std::string GenerateUuid() {
 std::shared_ptr<RtcPeer> RtcPeer::Create(PeerConfig config) { return std::make_shared<RtcPeer>(std::move(config)); }
 
 RtcPeer::RtcPeer(PeerConfig config) :
-    id_(utils::GenerateUuid()), timeout_(config.timeout), has_candidates_in_sdp_(config.has_candidates_in_sdp),
+    timeout_(config.timeout), id_(utils::GenerateUuid()), has_candidates_in_sdp_(config.has_candidates_in_sdp),
     is_connected_(false), is_complete_(false) {}
 
 RtcPeer::~RtcPeer() {
@@ -87,7 +87,7 @@ std::string RtcPeer::RestartIce(std::string ice_ufrag, std::string ice_pwd) {
 
 void RtcPeer::OnSignalingStateChange(rtc::PeerConnection::SignalingState state) {
   signaling_state_ = state;
-  DEBUG_PRINT("OnSignalingChange => %s", std::string(state).c_str());
+  DEBUG_PRINT("OnSignalingChange => %d", static_cast<int>(state));
   if (state == rtc::PeerConnection::SignalingState::HaveRemoteOffer) {
     peer_timeout_ = std::thread([this]() {
       std::this_thread::sleep_for(std::chrono::seconds(timeout_));
@@ -100,11 +100,11 @@ void RtcPeer::OnSignalingStateChange(rtc::PeerConnection::SignalingState state) 
 }
 
 void RtcPeer::OnIceGatheringChange(rtc::PeerConnection::GatheringState state) {
-  DEBUG_PRINT("OnIceGatheringChange => %s", std::string(state).c_str());
+  DEBUG_PRINT("OnIceGatheringChange => %d", static_cast<int>(state));
 }
 
 void RtcPeer::OnConnectionChange(rtc::PeerConnection::State state) {
-  DEBUG_PRINT("OnConnectionChange => %s", std::string(state).c_str());
+  DEBUG_PRINT("OnConnectionChange => %d", static_cast<int>(state));
   if (state == rtc::PeerConnection::State::Connected) {
     is_connected_.store(true);
     on_local_ice_fn_ = nullptr;
@@ -141,7 +141,7 @@ void RtcPeer::OnLocalDescription(rtc::Description desc) {
   }
 }
 
-void RtcPeer::EmitLocalSdp(int delay_sec = 0) {
+void RtcPeer::EmitLocalSdp(int delay_sec) {
   if (!on_local_sdp_fn_) {
     return;
   }

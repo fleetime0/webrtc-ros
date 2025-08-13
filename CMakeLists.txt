@@ -9,23 +9,24 @@ endif()
 find_package(Threads REQUIRED)
 find_package(Boost CONFIG REQUIRED COMPONENTS system thread)
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(AVDEVICE REQUIRED libavdevice)
 pkg_check_modules(AVCODEC REQUIRED libavcodec)
-pkg_check_modules(AVFORMAT REQUIRED libavformat)
 pkg_check_modules(AVUTIL REQUIRED libavutil)
-# pkg_check_modules(LIBYUV REQUIRED libyuv)
-# pkg_check_modules(OPENH264 REQUIRED openh264)
 
+add_subdirectory(deps/libyuv)
 add_subdirectory(deps/libdatachannel)
 
 add_executable(${PROJECT_NAME}
   src/main.cpp
   # src/http_service.cpp
   # src/webrtc_ros.cpp
-  # src/rtc_peer.cpp
+  # src/rtc/rtc_peer.cpp
   src/common/v4l2_utils.cpp
   src/common/logging.cpp
-  # src/libav_encoder.cpp
+  src/common/h264_frame_buffer.cpp
+  src/common/v4l2_frame_buffer.cpp
+  src/capturer/v4l2_capturer.cpp
+  src/encoder/libav_encoder.cpp
+
   # src/openh264_encoder.cpp
 )
 
@@ -35,11 +36,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/common>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
   ${AVCODEC_INCLUDE_DIRS}
-  ${AVFORMAT_INCLUDE_DIRS}
   ${AVUTIL_INCLUDE_DIRS}
-  ${AVDEVICE_INCLUDE_DIRS}
-  ${LIBYUV_INCLUDE_DIRS}
-  # ${OPENH264_INCLUDE_DIRS}
 )
 
 # target_compile_features(${PROJECT_NAME} PUBLIC c_std_99 cxx_std_17)
@@ -49,10 +46,9 @@ target_link_libraries(${PROJECT_NAME}
   Boost::thread
   LibDataChannel::LibDataChannel
   Threads::Threads
+  yuv
   ${AVCODEC_LIBRARIES}
-  ${AVFORMAT_LIBRARIES}
   ${AVUTIL_LIBRARIES}
-  ${AVDEVICE_LIBRARIES}
-  ${LIBYUV_LIBRARIES}
-  # ${OPENH264_LIBRARIES}
 )
+
+target_compile_definitions(${PROJECT_NAME} PRIVATE DEBUG_MODE=1)
