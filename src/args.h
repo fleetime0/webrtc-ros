@@ -62,12 +62,6 @@ struct Args {
 
   // webrtc
   int peer_timeout = 10;
-  std::string uid = "";
-  std::string stun_url = "stun:stun.l.google.com:19302";
-  std::string turn_url = "";
-  std::string turn_username = "";
-  std::string turn_password = "";
-
   uint16_t http_port = 8080;
 };
 
