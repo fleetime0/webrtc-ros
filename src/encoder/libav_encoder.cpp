@@ -79,6 +79,7 @@ LibAvEncoder::~LibAvEncoder() {
 }
 
 void LibAvEncoder::EncodeBuffer(std::shared_ptr<V4L2FrameBuffer> buffer) {
+  auto t_start = std::chrono::high_resolution_clock::now();
   AVFrame *frame = av_frame_alloc();
   if (!frame)
     throw std::runtime_error("libav: could not allocate AVFrame");
@@ -118,6 +119,13 @@ void LibAvEncoder::EncodeBuffer(std::shared_ptr<V4L2FrameBuffer> buffer) {
   encode(pkt_[Video], Video);
 
   av_frame_free(&frame);
+
+  // 记录结束时间
+  auto t_end = std::chrono::high_resolution_clock::now();
+  double elapsed_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
+
+  // 打印单次耗时
+  std::cout << "[media] EncodeBuffer耗时: " << elapsed_ms << " ms" << std::endl;
 }
 
 void LibAvEncoder::SubscribeVideoSource(std::shared_ptr<VideoCapturer> video_src) {

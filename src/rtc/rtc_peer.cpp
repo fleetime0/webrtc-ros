@@ -21,6 +21,7 @@ void RtcPeer::SubscribeEncoder(std::shared_ptr<Encoder> encoder) {
       if (!start_ts_)
         start_ts_ = buffer->timestamp();
       const int64_t ts_us = buffer->timestamp();
+      std::cout << "------------ " << ts_us - start_ts_ << " ------------" << std::endl;
       track_->sendFrame(reinterpret_cast<const rtc::byte *>(buffer->data()), buffer->size(),
                         std::chrono::duration<double, std::micro>(ts_us - start_ts_));
     }
