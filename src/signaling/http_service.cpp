@@ -2,19 +2,37 @@
 
 #include <iostream>
 #include <regex>
-#include <vector>
 
 #include "common/logging.h"
 
-std::shared_ptr<HttpService> HttpService::Create(Args args, std::shared_ptr<Conductor> conductor,
+std::shared_ptr<HttpService> HttpService::Create(Args args, std::shared_ptr<V4L2Webrtc> v4l2_webrtc,
                                                  boost::asio::io_context &ioc) {
-  return std::make_shared<HttpService>(args, conductor, ioc);
+  return std::make_shared<HttpService>(args, v4l2_webrtc, ioc);
 }
 
-HttpService::HttpService(Args args, std::shared_ptr<Conductor> conductor, boost::asio::io_context &ioc) :
-    SignalingService(conductor), port_(args.http_port), acceptor_({ioc, {boost::asio::ip::address_v6::any(), port_}}) {}
+HttpService::HttpService(Args args, std::shared_ptr<V4L2Webrtc> v4l2_webrtc, boost::asio::io_context &ioc) :
+    v4l2_webrtc_(v4l2_webrtc), cleaner_stop_(false), port_(args.http_port),
+    acceptor_({ioc, {boost::asio::ip::address_v6::any(), port_}}) {}
 
-HttpService::~HttpService() {}
+HttpService::~HttpService() {
+  cleaner_stop_.store(true);
+  if (cleaner_.joinable()) {
+    cleaner_.join();
+  }
+}
+
+void HttpService::Start() {
+  cleaner_ = std::thread([&] {
+    while (!cleaner_stop_.load()) {
+      std::this_thread::sleep_for(std::chrono::seconds(60));
+      if (cleaner_stop_.load())
+        break;
+      RefreshPeerMap();
+    }
+  });
+
+  Connect();
+}
 
 void HttpService::Connect() {
   INFO_PRINT("Http server is running on http://*:%d", port_);
@@ -22,6 +40,27 @@ void HttpService::Connect() {
 }
 
 void HttpService::Disconnect() {}
+
+std::shared_ptr<RtcPeer> HttpService::CreatePeer(PeerConfig config) {
+  if (!v4l2_webrtc_) {
+    ERROR_PRINT("V4L2Webrtc is not initialized.");
+    return nullptr;
+  }
+
+  auto peer = v4l2_webrtc_->CreatePeerConnection(config);
+  peer_map_[peer->id()] = peer;
+  return peer;
+}
+
+std::shared_ptr<RtcPeer> HttpService::GetPeer(const std::string &peer_id) {
+  auto it = peer_map_.find(peer_id);
+  if (it != peer_map_.end()) {
+    return it->second;
+  }
+  return nullptr;
+}
+
+void HttpService::RemovePeerFromMap(const std::string &peer_id) { peer_map_.erase(peer_id); }
 
 void HttpService::AcceptConnection() {
   acceptor_.async_accept([this](beast::error_code ec, tcp::socket socket) {
@@ -35,6 +74,21 @@ void HttpService::AcceptConnection() {
   });
 }
 
+void HttpService::RefreshPeerMap() {
+  auto pm_it = peer_map_.begin();
+  while (pm_it != peer_map_.end()) {
+    auto peer_id = pm_it->second->id();
+
+    if (pm_it->second && !pm_it->second->isConnected()) {
+      DEBUG_PRINT("peer_map (%s) was erased.", peer_id.c_str());
+      pm_it = peer_map_.erase(pm_it);
+      DEBUG_PRINT("peer_map (%s) was erased.", peer_id.c_str());
+    } else {
+      ++pm_it;
+    }
+  }
+}
+
 std::shared_ptr<HttpSession> HttpSession::Create(tcp::socket socket, std::shared_ptr<HttpService> http_service) {
   return std::make_shared<HttpSession>(std::move(socket), http_service);
 }
@@ -43,18 +97,19 @@ HttpSession::~HttpSession() {}
 
 void HttpSession::ReadRequest() {
   auto self = shared_from_this();
-  http::async_read(stream_, buffer_, req_, [self](beast::error_code ec, std::size_t bytes_transferred) {
-    if (!ec) {
-      self->HandleRequest();
-    } else {
-      std::cerr << "Read error: " << ec.message() << "\n";
-    }
-  });
+  http::async_read(stream_, buffer_, req_,
+                   [self](beast::error_code ec, [[maybe_unused]] std::size_t bytes_transferred) {
+                     if (!ec) {
+                       self->HandleRequest();
+                     } else {
+                       std::cerr << "Read error: " << ec.message() << "\n";
+                     }
+                   });
 }
 
 void HttpSession::WriteResponse() {
   auto self = shared_from_this();
-  http::async_write(stream_, *res_, [self](beast::error_code ec, std::size_t bytes_transferred) {
+  http::async_write(stream_, *res_, [self](beast::error_code ec, [[maybe_unused]] std::size_t bytes_transferred) {
     if (!ec) {
       DEBUG_PRINT("Successfully response!");
       self->CloseConnection();
@@ -73,8 +128,7 @@ void HttpSession::CloseConnection() {
 }
 
 void HttpSession::HandleRequest() {
-  DEBUG_PRINT("Receive http method: %d", req_.method());
-
+  DEBUG_PRINT("Receive http method: %d", static_cast<int>(req_.method()));
   if (req_.method() != http::verb::options && req_.find("Content-Type") == req_.end()) {
     ResponseUnprocessableEntity("Without content type.");
     return;
@@ -107,7 +161,7 @@ void HttpSession::HandlePostRequest() {
     config.has_candidates_in_sdp = true;
     auto peer = http_service_->CreatePeer(config);
     peer->OnLocalSdp([self = shared_from_this()](const std::string &peer_id, const std::string &sdp,
-                                                 const std::string &type) {
+                                                 [[maybe_unused]] const std::string &type) {
       std::string host(self->req_["Host"].begin(), self->req_["Host"].size());
       std::string location = "https://" + host + "/resource/" + peer_id;
       self->res_ = std::make_shared<http::response<http::string_body>>(http::status::created, self->req_.version());
@@ -151,7 +205,7 @@ void HttpSession::HandlePatchRequest() {
   auto ice_group = ParseCandidates(sdp);
   for (const auto &candidate: ice_group.candidates) {
     DEBUG_PRINT("  Set remote ice: %s", candidate.c_str());
-    peer->SetRemoteIce("0", 0, candidate);
+    peer->SetRemoteIce("0", candidate);
   }
 
   DEBUG_PRINT("Set received candidates into peer (%s)!", peer_id.c_str());

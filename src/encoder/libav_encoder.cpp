@@ -27,7 +27,7 @@ void encoderOptionsGeneral(Args args, AVCodecContext *codec) {
   if (codec->profile == FF_PROFILE_UNKNOWN)
     throw std::runtime_error("libav: no such profile " + h264_profile);
 
-  codec->level = 31;
+  codec->level = FF_LEVEL_UNKNOWN;
   codec->gop_size = args.fps;
 
   codec->bit_rate = args.bitrate * 1000;
@@ -79,7 +79,6 @@ LibAvEncoder::~LibAvEncoder() {
 }
 
 void LibAvEncoder::EncodeBuffer(std::shared_ptr<V4L2FrameBuffer> buffer) {
-  auto t_start = std::chrono::high_resolution_clock::now();
   AVFrame *frame = av_frame_alloc();
   if (!frame)
     throw std::runtime_error("libav: could not allocate AVFrame");
@@ -105,33 +104,6 @@ void LibAvEncoder::EncodeBuffer(std::shared_ptr<V4L2FrameBuffer> buffer) {
   const int64_t ts_us = tv_to_us(buffer->timestamp());
   frame->pts = ts_us - video_start_ts_;
 
-  static int64_t first_pts_us = -1;
-  static int64_t last_pts_us = -1;
-  static uint64_t frame_cnt = 0;
-  static int64_t if_min_us = LLONG_MAX;
-  static int64_t if_max_us = 0;
-  static long double if_sum_us = 0.0L;
-
-  if (first_pts_us < 0)
-    first_pts_us = frame->pts;
-  if (last_pts_us >= 0) {
-    int64_t if_us = frame->pts - last_pts_us; // inter-frame
-    if (if_us > 0) {
-      if_min_us = std::min(if_min_us, if_us);
-      if_max_us = std::max(if_max_us, if_us);
-      if_sum_us += if_us;
-    }
-  }
-  last_pts_us = frame->pts;
-  ++frame_cnt;
-
-  if (frame_cnt % 60 == 0 && frame_cnt > 1) {
-    double avg_if_ms = static_cast<double>(if_sum_us) / (frame_cnt - 1) / 1000.0; // µs → ms
-
-    std::cout << "[media] IF avg=" << avg_if_ms << " ms, min=" << if_min_us / 1000.0
-              << " ms, max=" << if_max_us / 1000.0 << " ms" << std::endl;
-  }
-
   auto *holder = new std::shared_ptr<I420Buffer>(i420_buffer);
 
   frame->buf[0] = av_buffer_create(i420_buffer->MutableDataY(), i420_buffer->ByteSize(), &LibAvEncoder::releaseBuffer,
@@ -146,13 +118,6 @@ void LibAvEncoder::EncodeBuffer(std::shared_ptr<V4L2FrameBuffer> buffer) {
   encode(pkt_[Video], Video);
 
   av_frame_free(&frame);
-
-  // 记录结束时间
-  auto t_end = std::chrono::high_resolution_clock::now();
-  double elapsed_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
-
-  // 打印单次耗时
-  std::cout << "[media] EncodeBuffer耗时: " << elapsed_ms << " ms" << std::endl;
 }
 
 void LibAvEncoder::SubscribeVideoSource(std::shared_ptr<VideoCapturer> video_src) {
@@ -199,8 +164,6 @@ void LibAvEncoder::encode(AVPacket *pkt, unsigned int stream_id) {
     } else if (ret < 0)
       throw std::runtime_error("libav: error receiving packet: " + std::to_string(ret));
 
-    std::cout << "[LibAvEncoder] stream=" << pkt->stream_index << " size=" << pkt->size << " pts=" << pkt->pts
-              << " dts=" << pkt->dts << " duration=" << pkt->duration << " flags=" << pkt->flags << std::endl;
     bool key = (pkt->flags & AV_PKT_FLAG_KEY) != 0;
     auto frame_buffer = H264FrameBuffer::Create(pkt->data, pkt->size, key, pkt->pts);
     NextFrameBuffer(frame_buffer);

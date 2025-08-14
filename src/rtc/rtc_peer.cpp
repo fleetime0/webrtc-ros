@@ -17,11 +17,13 @@ std::string GenerateUuid() {
 void RtcPeer::SubscribeEncoder(std::shared_ptr<Encoder> encoder) {
   encoder_observer_ = encoder->AsFrameBufferObservable();
   encoder_observer_->Subscribe([this](std::shared_ptr<H264FrameBuffer> buffer) {
-    if (!start_ts_)
-      start_ts_ = buffer->timestamp();
-    const int64_t ts_us = buffer->timestamp();
-    track_->sendFrame(reinterpret_cast<const rtc::byte *>(buffer->data()), buffer->size(),
-                      std::chrono::duration<double, std::micro>(ts_us - start_ts_));
+    if (track_ && track_->isOpen()) {
+      if (!start_ts_)
+        start_ts_ = buffer->timestamp();
+      const int64_t ts_us = buffer->timestamp();
+      track_->sendFrame(reinterpret_cast<const rtc::byte *>(buffer->data()), buffer->size(),
+                        std::chrono::duration<double, std::micro>(ts_us - start_ts_));
+    }
   });
 }
 
@@ -30,7 +32,7 @@ std::shared_ptr<RtcPeer> RtcPeer::Create(std::shared_ptr<Encoder> encoder, PeerC
   auto pc = std::make_shared<rtc::PeerConnection>(config);
   ptr->SetPeer(pc);
 
-  rtc::Description::Video video("video", rtc::Description::Direction::SendOnly);
+  rtc::Description::Video video("0", rtc::Description::Direction::SendOnly);
   video.addH264Codec(96);
   video.addSSRC(42, "video-send");
   auto track = pc->addTrack(video);
@@ -43,9 +45,6 @@ std::shared_ptr<RtcPeer> RtcPeer::Create(std::shared_ptr<Encoder> encoder, PeerC
   track->setMediaHandler(packetizer);
 
   ptr->SetTrack(track);
-
-  pc->setLocalDescription();
-
   ptr->SubscribeEncoder(encoder);
 
   return ptr;
@@ -227,6 +226,8 @@ void RtcPeer::SetRemoteSdp(const std::string &sdp, const std::string &sdp_type) 
   if (type == rtc::Description::Type::Offer) {
     peer_connection_->createAnswer();
   }
+
+  peer_connection_->setLocalDescription();
 }
 
 void RtcPeer::SetRemoteIce(const std::string &sdp_mid, const std::string &candidate) {

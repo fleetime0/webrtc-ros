@@ -8,7 +8,7 @@ endif()
 
 find_package(Threads REQUIRED)
 find_package(JPEG REQUIRED)
-find_package(Boost CONFIG REQUIRED COMPONENTS system thread)
+find_package(Boost CONFIG REQUIRED COMPONENTS system thread program_options)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(AVCODEC REQUIRED libavcodec)
 pkg_check_modules(AVUTIL REQUIRED libavutil)
@@ -18,7 +18,7 @@ add_subdirectory(deps/libdatachannel)
 
 add_executable(${PROJECT_NAME}
   src/main.cpp
-  # src/signaling/http_service.cpp
+  src/signaling/http_service.cpp
   src/v4l2_webrtc.cpp
   src/rtc/rtc_peer.cpp
   src/common/v4l2_utils.cpp
@@ -27,6 +27,7 @@ add_executable(${PROJECT_NAME}
   src/common/v4l2_frame_buffer.cpp
   src/capturer/v4l2_capturer.cpp
   src/encoder/libav_encoder.cpp
+  src/parser.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -43,6 +44,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 target_link_libraries(${PROJECT_NAME}
   Boost::system
   Boost::thread
+  Boost::program_options
   LibDataChannel::LibDataChannel
   Threads::Threads
   yuv

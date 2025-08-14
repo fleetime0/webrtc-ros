@@ -14,6 +14,9 @@ Args V4L2Webrtc::config() const { return args_; }
 
 
 std::shared_ptr<RtcPeer> V4L2Webrtc::CreatePeerConnection(PeerConfig peer_config) {
+  std::string stun_server = args_.stun_url;
+  peer_config.iceServers.emplace_back(stun_server);
+  peer_config.disableAutoNegotiation = true;
   auto peer = RtcPeer::Create(encoder_, peer_config);
   return peer;
 }
